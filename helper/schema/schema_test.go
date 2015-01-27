@@ -1,12 +1,15 @@
 package schema
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
 
 	"github.com/hashicorp/terraform/config"
 	"github.com/hashicorp/terraform/config/lang/ast"
+	"github.com/hashicorp/terraform/helper/hashcode"
 	"github.com/hashicorp/terraform/terraform"
 )
 
@@ -1885,6 +1888,60 @@ func TestSchemaMap_Diff(t *testing.T) {
 			},
 
 			Err: false,
+		},
+
+		// #47 - https://github.com/hashicorp/terraform/issues/824
+		{
+			Schema: map[string]*Schema{
+				"block_device": &Schema{
+					Type:     TypeSet,
+					Optional: true,
+					Computed: true,
+					Elem: &Resource{
+						Schema: map[string]*Schema{
+							"device_name": &Schema{
+								Type:     TypeString,
+								Required: true,
+							},
+							"delete_on_termination": &Schema{
+								Type:     TypeBool,
+								Optional: true,
+								Default:  true,
+							},
+						},
+					},
+					Set: func(v interface{}) int {
+						var buf bytes.Buffer
+						m := v.(map[string]interface{})
+						buf.WriteString(fmt.Sprintf("%s-", m["device_name"].(string)))
+						buf.WriteString(fmt.Sprintf("%t-", m["delete_on_termination"].(bool)))
+						return hashcode.String(buf.String())
+					},
+				},
+			},
+
+			State: &terraform.InstanceState{
+				Attributes: map[string]string{
+					"block_device.#":                                "2",
+					"block_device.616397234.delete_on_termination":  "true",
+					"block_device.616397234.device_name":            "/dev/sda1",
+					"block_device.2801811477.delete_on_termination": "true",
+					"block_device.2801811477.device_name":           "/dev/sdx",
+				},
+			},
+
+			Config: map[string]interface{}{
+				"block_device": []map[string]interface{}{
+					map[string]interface{}{
+						"device_name": "/dev/sda1",
+					},
+					map[string]interface{}{
+						"device_name": "/dev/sdx",
+					},
+				},
+			},
+			Diff: nil,
+			Err:  false,
 		},
 	}
 

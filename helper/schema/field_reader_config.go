@@ -138,7 +138,17 @@ func (r *ConfigFieldReader) readPrimitive(
 	k string, schema *Schema) (FieldReadResult, error) {
 	raw, ok := r.Config.Get(k)
 	if !ok {
-		return FieldReadResult{}, nil
+		// The config itself doesn't have a value, but the Schema may still define
+		// a default
+		var err error
+		raw, err = schema.GetDefaultValue()
+		if err != nil {
+			return FieldReadResult{}, fmt.Errorf("%s, error loading default: %s", k, err)
+		}
+
+		if raw == nil {
+			return FieldReadResult{}, nil
+		}
 	}
 
 	var result string

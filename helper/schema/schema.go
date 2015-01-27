@@ -201,6 +201,23 @@ func (s *Schema) GoString() string {
 	return fmt.Sprintf("*%#v", *s)
 }
 
+// Returns a default value for this schema by either reading Default or
+// evaluating DefaultFunc. If neither of these are defined, returns nil.
+func (s *Schema) GetDefaultValue() (interface{}, error) {
+	// Easier to just preload Default even if it's nil than to do another
+	// conditional here
+	defaultValue := s.Default
+
+	if s.DefaultFunc != nil {
+		var err error
+		defaultValue, err = s.DefaultFunc()
+		if err != nil {
+			return nil, fmt.Errorf("error loading default: %s", err)
+		}
+	}
+	return defaultValue, nil
+}
+
 func (s *Schema) finalizeDiff(
 	d *terraform.ResourceAttrDiff) *terraform.ResourceAttrDiff {
 	if d == nil {
@@ -374,22 +391,15 @@ func (m schemaMap) Input(
 		}
 
 		// Skip if it has a default
-		if v.Default != nil {
-			continue
+		defaultValue, err := v.GetDefaultValue()
+		if err != nil {
+			return nil, fmt.Errorf("%s: error loading default: %s", k, err)
 		}
-		if f := v.DefaultFunc; f != nil {
-			value, err := f()
-			if err != nil {
-				return nil, fmt.Errorf(
-					"%s: error loading default: %s", k, err)
-			}
-			if value != nil {
-				continue
-			}
+		if defaultValue != nil {
+			continue
 		}
 
 		var value interface{}
-		var err error
 		switch v.Type {
 		case TypeBool:
 			fallthrough
@@ -836,13 +846,10 @@ func (m schemaMap) diffString(
 	var os, ns string
 	o, n, _, _ := d.diffChange(k)
 	if n == nil {
-		n = schema.Default
-		if schema.DefaultFunc != nil {
-			var err error
-			n, err = schema.DefaultFunc()
-			if err != nil {
-				return fmt.Errorf("%s, error loading default: %s", k, err)
-			}
+		var err error
+		n, err = schema.GetDefaultValue()
+		if err != nil {
+			return fmt.Errorf("%s, error loading default: %s", k, err)
 		}
 	}
 	if schema.StateFunc != nil {
